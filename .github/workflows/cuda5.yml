@@ -23,7 +23,8 @@ jobs:
 
           $commit = git rev-parse HEAD
 
-          Write-Host "stable-diffusion.cpp commit: $commit"
+          Write-Host "stable-diffusion.cpp commit:"
+          Write-Host $commit
 
           if (-not $commit.StartsWith("3f8527a")) {
             throw "Wrong stable-diffusion.cpp revision: $commit"
@@ -36,7 +37,17 @@ jobs:
         with:
           cuda: '12.4.1'
 
-      - name: Configure
+      - name: Activate MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Show tool versions
+        shell: pwsh
+        run: |
+          nvcc --version
+          cmake --version
+          cl
+
+      - name: Configure CMake
         shell: pwsh
         run: |
           cmake -S . -B build `
@@ -45,7 +56,8 @@ jobs:
             -DSD_CUDA=ON `
             -DCMAKE_CUDA_ARCHITECTURES=50 `
             -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" `
-            -DSD_BUILD_EXAMPLES=ON
+            -DSD_BUILD_EXAMPLES=ON `
+            -DSD_BUILD_SHARED_GGML_LIB=ON
 
       - name: Build
         shell: pwsh
@@ -54,30 +66,86 @@ jobs:
             --config Release `
             --parallel 2
 
+      - name: Locate all build DLLs
+        shell: pwsh
+        run: |
+          Write-Host "========================================"
+          Write-Host "ALL DLL OUTPUTS"
+          Write-Host "========================================"
+
+          $dlls = Get-ChildItem `
+            -Path build `
+            -Recurse `
+            -File `
+            -Filter "*.dll"
+
+          if (-not $dlls) {
+            throw "Build completed but produced no DLL files."
+          }
+
+          foreach ($dll in $dlls) {
+            Write-Host "$($dll.FullName) [$($dll.Length) bytes]"
+          }
+
       - name: Locate CUDA backend
         shell: pwsh
         run: |
-          $dll = Get-ChildItem `
+          Write-Host "========================================"
+          Write-Host "SEARCHING FOR CUDA BACKEND"
+          Write-Host "========================================"
+
+          $cudaDlls = Get-ChildItem `
             -Path build `
             -Recurse `
-            -Filter "ggml-cuda.dll" |
-            Select-Object -First 1
+            -File `
+            -Filter "*.dll" |
+            Where-Object {
+              $_.Name -match "cuda"
+            }
 
-          if (-not $dll) {
-            throw "ggml-cuda.dll was not produced."
+          if (-not $cudaDlls) {
+            Write-Host ""
+            Write-Host "No DLL containing 'cuda' was found."
+            Write-Host ""
+            Write-Host "DLLs actually produced:"
+
+            Get-ChildItem `
+              -Path build `
+              -Recurse `
+              -File `
+              -Filter "*.dll" |
+              Select-Object FullName, Length |
+              Format-Table -AutoSize
+
+            throw "CUDA backend DLL was not found."
           }
 
-          Write-Host "Found CUDA backend:"
-          Write-Host $dll.FullName
-          Write-Host "Size: $($dll.Length) bytes"
+          Write-Host ""
+          Write-Host "CUDA DLL candidates:"
+
+          foreach ($dll in $cudaDlls) {
+            Write-Host "$($dll.FullName) [$($dll.Length) bytes]"
+          }
 
           New-Item `
             -ItemType Directory `
             -Force `
             -Path artifact | Out-Null
 
+          $cudaDll = $cudaDlls |
+            Where-Object { $_.Name -eq "ggml-cuda.dll" } |
+            Select-Object -First 1
+
+          if (-not $cudaDll) {
+            $cudaDll = $cudaDlls | Select-Object -First 1
+          }
+
+          Write-Host ""
+          Write-Host "Selected:"
+          Write-Host $cudaDll.FullName
+
           Copy-Item `
-            $dll.FullName `
+            $cudaDll.FullName `
             "artifact\ggml-cuda.dll"
 
       - name: Upload CUDA backend
