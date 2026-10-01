@@ -21,128 +21,64 @@ jobs:
           git checkout 3f8527a
           git submodule update --init --recursive
 
-          Write-Host "========================================"
-          Write-Host "stable-diffusion.cpp revision:"
           $commit = git rev-parse HEAD
-          Write-Host $commit
-          Write-Host "========================================"
+
+          Write-Host "stable-diffusion.cpp commit: $commit"
 
           if (-not $commit.StartsWith("3f8527a")) {
-            throw "Wrong stable-diffusion.cpp revision!"
+            throw "Wrong stable-diffusion.cpp revision: $commit"
           }
 
           Write-Host "Correct revision confirmed."
-          Write-Host ""
-          Write-Host "Submodule status:"
-          git submodule status
 
       - name: Setup CUDA 12.4.1
         uses: Jimver/cuda-toolkit@v0.2.24
         with:
           cuda: '12.4.1'
 
-      - name: Show tool versions
+      - name: Configure
         shell: pwsh
         run: |
-          Write-Host "========================================"
-          Write-Host "NVCC"
-          Write-Host "========================================"
-          nvcc --version
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "CMake"
-          Write-Host "========================================"
-          cmake --version
-
-          Write-Host ""
-          Write-Host "========================================"
-          Write-Host "MSVC"
-          Write-Host "========================================"
-          cl
-
-      - name: Configure CMake
-        shell: pwsh
-        run: |
-          Write-Host "========================================"
-          Write-Host "Configuring stable-diffusion.cpp"
-          Write-Host "CUDA architecture: SM 50"
-          Write-Host "========================================"
-
           cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
             -DSD_CUDA=ON `
             -DCMAKE_CUDA_ARCHITECTURES=50 `
-            -DSD_BUILD_EXAMPLES=ON `
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" `
+            -DSD_BUILD_EXAMPLES=ON
 
       - name: Build
         shell: pwsh
         run: |
-          Write-Host "========================================"
-          Write-Host "Building"
-          Write-Host "========================================"
-
           cmake --build build `
             --config Release `
             --parallel 2
 
-      - name: Find CUDA backend DLL
+      - name: Locate CUDA backend
         shell: pwsh
         run: |
-          Write-Host "========================================"
-          Write-Host "Searching for ggml-cuda.dll"
-          Write-Host "========================================"
-
-          $dlls = Get-ChildItem `
-            build `
+          $dll = Get-ChildItem `
+            -Path build `
             -Recurse `
-            -Filter "ggml-cuda.dll"
+            -Filter "ggml-cuda.dll" |
+            Select-Object -First 1
 
-          if (-not $dlls) {
-            throw "ggml-cuda.dll was not produced!"
+          if (-not $dll) {
+            throw "ggml-cuda.dll was not produced."
           }
 
-          foreach ($dll in $dlls) {
-            Write-Host ""
-            Write-Host "Found:"
-            Write-Host $dll.FullName
-            Write-Host "Size:"
-            Write-Host "$($dll.Length) bytes"
-          }
-
-      - name: Package CUDA backend
-        shell: pwsh
-        run: |
-          Write-Host "========================================"
-          Write-Host "Packaging CUDA backend"
-          Write-Host "========================================"
+          Write-Host "Found CUDA backend:"
+          Write-Host $dll.FullName
+          Write-Host "Size: $($dll.Length) bytes"
 
           New-Item `
             -ItemType Directory `
             -Force `
             -Path artifact | Out-Null
 
-          $dll = Get-ChildItem `
-            build `
-            -Recurse `
-            -Filter "ggml-cuda.dll" |
-            Select-Object -First 1
-
-          if (-not $dll) {
-            throw "Could not find ggml-cuda.dll!"
-          }
-
           Copy-Item `
             $dll.FullName `
             "artifact\ggml-cuda.dll"
-
-          Write-Host ""
-          Write-Host "Packaged DLL:"
-          Write-Host $dll.FullName
-          Write-Host ""
-
-          Get-Item "artifact\ggml-cuda.dll" |
-            Format-List FullName, Length
 
       - name: Upload CUDA backend
         uses: actions/upload-artifact@v4
