@@ -23,13 +23,16 @@ jobs:
 
           Write-Host "========================================"
           Write-Host "stable-diffusion.cpp revision:"
-          git rev-parse HEAD
+          $commit = git rev-parse HEAD
+          Write-Host $commit
           Write-Host "========================================"
 
-          if ((git rev-parse HEAD) -ne "3f8527a") {
+          if (-not $commit.StartsWith("3f8527a")) {
             throw "Wrong stable-diffusion.cpp revision!"
           }
 
+          Write-Host "Correct revision confirmed."
+          Write-Host ""
           Write-Host "Submodule status:"
           git submodule status
 
@@ -41,18 +44,31 @@ jobs:
       - name: Show tool versions
         shell: pwsh
         run: |
-          Write-Host "===== NVCC ====="
+          Write-Host "========================================"
+          Write-Host "NVCC"
+          Write-Host "========================================"
           nvcc --version
 
-          Write-Host "===== CMake ====="
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "CMake"
+          Write-Host "========================================"
           cmake --version
 
-          Write-Host "===== Compiler ====="
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "MSVC"
+          Write-Host "========================================"
           cl
 
       - name: Configure CMake
         shell: pwsh
         run: |
+          Write-Host "========================================"
+          Write-Host "Configuring stable-diffusion.cpp"
+          Write-Host "CUDA architecture: SM 50"
+          Write-Host "========================================"
+
           cmake -S . -B build `
             -DSD_CUDA=ON `
             -DCMAKE_CUDA_ARCHITECTURES=50 `
@@ -62,6 +78,10 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
+          Write-Host "========================================"
+          Write-Host "Building"
+          Write-Host "========================================"
+
           cmake --build build `
             --config Release `
             --parallel 2
@@ -69,9 +89,14 @@ jobs:
       - name: Find CUDA backend DLL
         shell: pwsh
         run: |
-          Write-Host "Searching for ggml-cuda.dll..."
+          Write-Host "========================================"
+          Write-Host "Searching for ggml-cuda.dll"
+          Write-Host "========================================"
 
-          $dlls = Get-ChildItem build -Recurse -Filter "ggml-cuda.dll"
+          $dlls = Get-ChildItem `
+            build `
+            -Recurse `
+            -Filter "ggml-cuda.dll"
 
           if (-not $dlls) {
             throw "ggml-cuda.dll was not produced!"
@@ -82,15 +107,25 @@ jobs:
             Write-Host "Found:"
             Write-Host $dll.FullName
             Write-Host "Size:"
-            Write-Host $dll.Length
+            Write-Host "$($dll.Length) bytes"
           }
 
       - name: Package CUDA backend
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          Write-Host "========================================"
+          Write-Host "Packaging CUDA backend"
+          Write-Host "========================================"
 
-          $dll = Get-ChildItem build -Recurse -Filter "ggml-cuda.dll" |
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path artifact | Out-Null
+
+          $dll = Get-ChildItem `
+            build `
+            -Recurse `
+            -Filter "ggml-cuda.dll" |
             Select-Object -First 1
 
           if (-not $dll) {
@@ -101,7 +136,11 @@ jobs:
             $dll.FullName `
             "artifact\ggml-cuda.dll"
 
-          Write-Host "Packaged:"
+          Write-Host ""
+          Write-Host "Packaged DLL:"
+          Write-Host $dll.FullName
+          Write-Host ""
+
           Get-Item "artifact\ggml-cuda.dll" |
             Format-List FullName, Length
 
