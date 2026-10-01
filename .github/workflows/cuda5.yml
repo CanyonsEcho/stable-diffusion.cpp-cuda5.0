@@ -1,0 +1,66 @@
+name: Build CUDA sm_50
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout stable-diffusion.cpp
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: 3f8527a
+
+      - name: Setup CUDA 12.0
+        uses: Jimver/cuda-toolkit@v0.2.24
+        with:
+          cuda: '12.0.1'
+
+      - name: Show tool versions
+        shell: pwsh
+        run: |
+          nvcc --version
+          cmake --version
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -DSD_CUDA=ON `
+            -DCMAKE_CUDA_ARCHITECTURES=50 `
+            -DSD_BUILD_EXAMPLES=ON `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2
+
+      - name: Find CUDA backend
+        shell: pwsh
+        run: |
+          Get-ChildItem build -Recurse -Filter "ggml-cuda.dll" |
+            Select-Object FullName, Length
+
+      - name: Package CUDA backend
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+
+          $dll = Get-ChildItem build -Recurse -Filter "ggml-cuda.dll" |
+            Select-Object -First 1
+
+          if (-not $dll) {
+            throw "ggml-cuda.dll was not produced"
+          }
+
+          Copy-Item $dll.FullName artifact\ggml-cuda.dll
+
+      - name: Upload CUDA backend
+        uses: actions/upload-artifact@v4
+        with:
+          name: sd-cuda-sm50
+          path: artifact\ggml-cuda.dll
