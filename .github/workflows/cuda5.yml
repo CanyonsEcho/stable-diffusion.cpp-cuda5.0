@@ -1,4 +1,4 @@
-name: Build CUDA sm_50
+name: Build CUDA sm50
 
 on:
   workflow_dispatch:
@@ -8,23 +8,49 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout stable-diffusion.cpp
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
-      - name: Setup CUDA 12.0
+      - name: Checkout exact stable-diffusion.cpp revision
+        shell: pwsh
+        run: |
+          git fetch --all --tags
+          git checkout 3f8527a
+          git submodule update --init --recursive
+
+          Write-Host "========================================"
+          Write-Host "stable-diffusion.cpp revision:"
+          git rev-parse HEAD
+          Write-Host "========================================"
+
+          if ((git rev-parse HEAD) -ne "3f8527a") {
+            throw "Wrong stable-diffusion.cpp revision!"
+          }
+
+          Write-Host "Submodule status:"
+          git submodule status
+
+      - name: Setup CUDA 12.4.1
         uses: Jimver/cuda-toolkit@v0.2.24
         with:
-          cuda: '12.0.1'
+          cuda: '12.4.1'
 
       - name: Show tool versions
         shell: pwsh
         run: |
+          Write-Host "===== NVCC ====="
           nvcc --version
+
+          Write-Host "===== CMake ====="
           cmake --version
 
-      - name: Configure
+          Write-Host "===== Compiler ====="
+          cl
+
+      - name: Configure CMake
         shell: pwsh
         run: |
           cmake -S . -B build `
@@ -36,13 +62,28 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel 2
+          cmake --build build `
+            --config Release `
+            --parallel 2
 
-      - name: Find CUDA backend
+      - name: Find CUDA backend DLL
         shell: pwsh
         run: |
-          Get-ChildItem build -Recurse -Filter "ggml-cuda.dll" |
-            Select-Object FullName, Length
+          Write-Host "Searching for ggml-cuda.dll..."
+
+          $dlls = Get-ChildItem build -Recurse -Filter "ggml-cuda.dll"
+
+          if (-not $dlls) {
+            throw "ggml-cuda.dll was not produced!"
+          }
+
+          foreach ($dll in $dlls) {
+            Write-Host ""
+            Write-Host "Found:"
+            Write-Host $dll.FullName
+            Write-Host "Size:"
+            Write-Host $dll.Length
+          }
 
       - name: Package CUDA backend
         shell: pwsh
@@ -53,13 +94,20 @@ jobs:
             Select-Object -First 1
 
           if (-not $dll) {
-            throw "ggml-cuda.dll was not produced"
+            throw "Could not find ggml-cuda.dll!"
           }
 
-          Copy-Item $dll.FullName artifact\ggml-cuda.dll
+          Copy-Item `
+            $dll.FullName `
+            "artifact\ggml-cuda.dll"
+
+          Write-Host "Packaged:"
+          Get-Item "artifact\ggml-cuda.dll" |
+            Format-List FullName, Length
 
       - name: Upload CUDA backend
         uses: actions/upload-artifact@v4
         with:
           name: sd-cuda-sm50
           path: artifact\ggml-cuda.dll
+          if-no-files-found: error
