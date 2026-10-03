@@ -1,0 +1,122 @@
+name: Build Full
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Checkout exact commit
+        shell: pwsh
+        run: |
+          git fetch --all --tags
+          git checkout 3f8527a
+          git submodule update --init --recursive
+
+          Write-Host "=== stable-diffusion.cpp commit ==="
+          git rev-parse HEAD
+
+          if (-not (git rev-parse HEAD).StartsWith("3f8527a")) {
+            throw "Wrong stable-diffusion.cpp commit!"
+          }
+
+          Write-Host "=== submodules ==="
+          git submodule status
+
+      - name: Setup CUDA 12.4.1
+        uses: Jimver/cuda-toolkit@v0.2.24
+        with:
+          cuda: '12.4.1'
+
+      - name: Activate MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Show toolchain
+        shell: pwsh
+        run: |
+          nvcc --version
+          cmake --version
+          git --version
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DSD_CUDA=ON `
+            -DCMAKE_CUDA_ARCHITECTURES=50 `
+            -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" `
+            -DSD_BUILD_EXAMPLES=ON `
+            -DSD_BUILD_SHARED_GGML_LIB=ON `
+            -DGGML_NATIVE=OFF
+
+      - name: Build everything
+        shell: pwsh
+        run: |
+          cmake --build build `
+            --config Release `
+            --parallel 2
+
+      - name: Collect complete build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifact | Out-Null
+
+          Write-Host "=== EXE ==="
+          Get-ChildItem build -Recurse -Filter "sd-cli.exe" |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+          Write-Host "=== DLLS ==="
+          Get-ChildItem build -Recurse -Filter "*.dll" |
+            Select-Object FullName, Length |
+            Sort-Object Name |
+            Format-Table -AutoSize
+
+          # Copy sd-cli
+          Get-ChildItem build -Recurse -Filter "sd-cli.exe" |
+            Select-Object -First 1 |
+            Copy-Item -Destination artifact\
+
+          # Copy stable-diffusion
+          Get-ChildItem build -Recurse -Filter "stable-diffusion.dll" |
+            Select-Object -First 1 |
+            Copy-Item -Destination artifact\
+
+          # Copy every GGML backend, including CUDA
+          Get-ChildItem build -Recurse -Filter "ggml*.dll" |
+            ForEach-Object {
+              Copy-Item $_.FullName artifact\ -Force
+            }
+
+          # Copy remaining runtime DLLs
+          Get-ChildItem build -Recurse -Filter "*.dll" |
+            Where-Object {
+              $_.Name -notlike "ggml*.dll" -and
+              $_.Name -ne "stable-diffusion.dll"
+            } |
+            ForEach-Object {
+              Copy-Item $_.FullName artifact\ -Force
+            }
+
+          Write-Host "=== FINAL ARTIFACT ==="
+          Get-ChildItem artifact |
+            Select-Object Name, Length |
+            Sort-Object Name |
+            Format-Table -AutoSize
+
+      - name: Upload complete build
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-diffusion-cuda-sm50-complete
+          path: artifact
+          if-no-files-found: error
