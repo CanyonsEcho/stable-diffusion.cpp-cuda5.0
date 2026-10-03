@@ -1,0 +1,65 @@
+name: Build GGML and Sandy Bridge (Intel Core 3xxx)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: 3f8527a
+
+      - name: Activate MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DSD_CUDA=OFF `
+            -DSD_BUILD_SHARED_LIBS=ON `
+            -DSD_BUILD_SHARED_GGML_LIB=ON `
+            -DGGML_BACKEND_DL=ON `
+            -DGGML_NATIVE=OFF `
+            -DSD_BUILD_EXAMPLES=OFF
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2
+
+      - name: Find DLLs
+        shell: pwsh
+        run: |
+          Write-Host "=== GGML DLLs ==="
+          Get-ChildItem -Path build -Recurse -Filter "ggml*.dll" |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+
+          $dlls = Get-ChildItem -Path build -Recurse -Filter "ggml*.dll"
+
+          foreach ($dll in $dlls) {
+            Copy-Item $dll.FullName artifact\
+          }
+
+          Write-Host "=== Artifact ==="
+          Get-ChildItem artifact | Format-Table Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ggml-sandybridge
+          path: artifact
+          if-no-files-found: error
