@@ -57,7 +57,8 @@ jobs:
             -DCMAKE_CUDA_FLAGS="--allow-unsupported-compiler" `
             -DSD_BUILD_EXAMPLES=ON `
             -DSD_BUILD_SHARED_GGML_LIB=ON `
-            -DGGML_NATIVE=OFF
+            -DGGML_NATIVE=OFF `
+            -DGGML_CPU_ALL_VARIANTS=ON
 
       - name: Build everything
         shell: pwsh
@@ -69,7 +70,7 @@ jobs:
       - name: Collect complete build
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force artifact | Out-Null
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
 
           Write-Host "=== EXE ==="
           Get-ChildItem build -Recurse -Filter "sd-cli.exe" |
@@ -82,23 +83,23 @@ jobs:
             Sort-Object Name |
             Format-Table -AutoSize
 
-          # Copy sd-cli
+          # sd-cli
           Get-ChildItem build -Recurse -Filter "sd-cli.exe" |
             Select-Object -First 1 |
             Copy-Item -Destination artifact\
 
-          # Copy stable-diffusion
+          # stable-diffusion.dll
           Get-ChildItem build -Recurse -Filter "stable-diffusion.dll" |
             Select-Object -First 1 |
             Copy-Item -Destination artifact\
 
-          # Copy every GGML backend, including CUDA
+          # All GGML backends, including CUDA and CPU variants
           Get-ChildItem build -Recurse -Filter "ggml*.dll" |
             ForEach-Object {
               Copy-Item $_.FullName artifact\ -Force
             }
 
-          # Copy remaining runtime DLLs
+          # Other runtime DLLs
           Get-ChildItem build -Recurse -Filter "*.dll" |
             Where-Object {
               $_.Name -notlike "ggml*.dll" -and
