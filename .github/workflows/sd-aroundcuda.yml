@@ -1,0 +1,99 @@
+name: Build stable-diffusion.cpp around existing CUDA GGML
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Checkout exact commit
+        shell: pwsh
+        run: |
+          git fetch --all --tags
+          git checkout 3f8527a
+          git submodule update --init --recursive
+
+          Write-Host "Main commit:"
+          git rev-parse HEAD
+
+          Write-Host "GGML submodule:"
+          git -C ggml rev-parse HEAD
+
+      - name: Activate MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DSD_CUDA=OFF `
+            -DSD_BUILD_EXAMPLES=ON `
+            -DSD_BUILD_SHARED_GGML_LIB=ON `
+            -DGGML_NATIVE=OFF `
+            -DGGML_BACKEND_DL=ON
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build `
+            --config Release `
+            --parallel 2
+
+      - name: Collect non-CUDA binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifact | Out-Null
+
+          Write-Host "=== sd-cli ==="
+          Get-ChildItem build -Recurse -Filter "sd-cli.exe" |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+          Write-Host "=== stable-diffusion.dll ==="
+          Get-ChildItem build -Recurse -Filter "stable-diffusion.dll" |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+          Write-Host "=== GGML DLLs ==="
+          Get-ChildItem build -Recurse -Filter "ggml*.dll" |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+          # sd-cli
+          Get-ChildItem build -Recurse -Filter "sd-cli.exe" |
+            Select-Object -First 1 |
+            Copy-Item -Destination artifact\
+
+          # stable-diffusion
+          Get-ChildItem build -Recurse -Filter "stable-diffusion.dll" |
+            Select-Object -First 1 |
+            Copy-Item -Destination artifact\
+
+          # GGML core + CPU backends
+          Get-ChildItem build -Recurse -Filter "ggml*.dll" |
+            Where-Object { $_.Name -ne "ggml-cuda.dll" } |
+            ForEach-Object {
+              Copy-Item $_.FullName artifact\ -Force
+            }
+
+          Write-Host "=== FINAL ARTIFACT ==="
+          Get-ChildItem artifact |
+            Select-Object Name, Length |
+            Format-Table -AutoSize
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sd-nocuda-rebuild
+          path: artifact
+          if-no-files-found: error
