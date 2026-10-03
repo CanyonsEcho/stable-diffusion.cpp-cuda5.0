@@ -8,11 +8,24 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout exact revision
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
-          ref: 3f8527a
+          submodules: false
+          fetch-depth: 0
+
+      - name: Checkout exact commit and submodules
+        shell: pwsh
+        run: |
+          git fetch --all --tags
+          git checkout 3f8527a
+          git submodule update --init --recursive
+
+          Write-Host "=== Main commit ==="
+          git rev-parse HEAD
+
+          Write-Host "=== Submodules ==="
+          git submodule status
 
       - name: Activate MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -35,10 +48,11 @@ jobs:
         run: |
           cmake --build build --config Release --parallel 2
 
-      - name: Find DLLs
+      - name: Find GGML DLLs
         shell: pwsh
         run: |
           Write-Host "=== GGML DLLs ==="
+
           Get-ChildItem -Path build -Recurse -Filter "ggml*.dll" |
             Select-Object FullName, Length |
             Format-Table -AutoSize
@@ -48,14 +62,15 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifact | Out-Null
 
-          $dlls = Get-ChildItem -Path build -Recurse -Filter "ggml*.dll"
-
-          foreach ($dll in $dlls) {
-            Copy-Item $dll.FullName artifact\
-          }
+          Get-ChildItem -Path build -Recurse -Filter "ggml*.dll" |
+            ForEach-Object {
+              Copy-Item $_.FullName artifact\
+            }
 
           Write-Host "=== Artifact ==="
-          Get-ChildItem artifact | Format-Table Name, Length
+          Get-ChildItem artifact |
+            Select-Object Name, Length |
+            Format-Table -AutoSize
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
