@@ -1,0 +1,48 @@
+name: Build sd-cli only
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Patch safety margin
+        shell: pwsh
+        run: |
+          $file = "src/model_manager.cpp"
+          $text = Get-Content $file -Raw
+
+          $old = "constexpr size_t safety_margin = 512ULL * 1024ULL * 1024ULL;"
+          $new = "constexpr size_t safety_margin = 8ULL * 1024ULL * 1024ULL;"
+
+          if (-not $text.Contains($old)) {
+            throw "Could not find safety margin line"
+          }
+
+          $text = $text.Replace($old, $new)
+          Set-Content $file $text -NoNewline
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DSD_CUDA=ON
+
+      - name: Build sd-cli only
+        run: |
+          cmake --build build --config Release --target sd-cli --parallel
+
+      - name: Upload sd-cli
+        uses: actions/upload-artifact@v4
+        with:
+          name: sd-cli
+          path: |
+            build/bin/Release/sd-cli.exe
+            build/bin/Release/*.dll
