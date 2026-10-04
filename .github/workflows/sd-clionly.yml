@@ -11,20 +11,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup CUDA
-        uses: Jimver/cuda-toolkit@v0.2.27
-        with:
-          cuda: '12.4.1'
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Setup Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v5
-
-      - name: Configure CMake
-        run: >
-          cmake -S . -B build
-          -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DSD_CUDA=ON
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build sd-cli only
         run: cmake --build build --target sd-cli --parallel
@@ -33,6 +24,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sd-cli
-          path: |
-            build/bin/sd-cli.exe
-            build/bin/*.dll
+          path: build/bin/sd-cli.exe
