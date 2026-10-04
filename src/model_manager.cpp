@@ -1732,7 +1732,7 @@ ModelManager::CapacityCheck ModelManager::check_capacity(
     auto add             = [](size_t a, size_t b) { return b > SIZE_MAX - a ? SIZE_MAX : a + b; };
     const size_t missing = compute_backend_alloc_size(states, true);
     // Backend scratch buffers and pipelines are not included in graph measurements.
-    constexpr size_t safety_margin = 512ULL * 1024ULL * 1024ULL;
+    constexpr size_t safety_margin = 8ULL * 1024ULL * 1024ULL;
     result.required_device_bytes   = add(add(request.pending_allocation_bytes, missing), safety_margin);
     result.required_budget_bytes   = add(request.runtime_peak_bytes(), missing);
     auto available_device_bytes    = [&](ggml_backend_t backend) {
