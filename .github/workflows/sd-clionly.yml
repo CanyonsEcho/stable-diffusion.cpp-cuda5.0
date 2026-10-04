@@ -11,22 +11,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Patch safety margin
-        shell: pwsh
-        run: |
-          $file = "src/model_manager.cpp"
-          $text = Get-Content $file -Raw
-
-          $old = "constexpr size_t safety_margin = 512ULL * 1024ULL * 1024ULL;"
-          $new = "constexpr size_t safety_margin = 8ULL * 1024ULL * 1024ULL;"
-
-          if (-not $text.Contains($old)) {
-            throw "Could not find safety margin line"
-          }
-
-          $text = $text.Replace($old, $new)
-          Set-Content $file $text -NoNewline
-
       - name: Configure CMake
         shell: pwsh
         run: |
